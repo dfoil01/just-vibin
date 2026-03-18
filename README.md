@@ -46,8 +46,10 @@ pip install -r requirements.txt
 ## Usage
 
 ```bash
-python vibe.py [--offline] [--slow] [topic]
+python vibe.py [--api] [--slow] [topic]
 ```
+
+**Offline is the default.** No API key needed to run. Pass `--api` to seed sessions with a real Haiku call instead.
 
 ### Basic
 
@@ -58,13 +60,18 @@ python vibe.py "migrate database schema to multi-tenancy"
 python vibe.py "add stripe billing webhooks"
 ```
 
-### No API key — offline mode
+After the first session, the topic is automatically remixed from your original words — e.g. `"add oauth2 login"` might become `"scaffold refresh tokens handler"` or `"normalise oauth2 flow"` — so each loop looks like a fresh task.
 
-Generates sessions from local templates. No API calls, no key needed.
+### API mode
+
+Uses a real `claude-haiku` call to generate a richer seed tailored to your topic. Requires `ANTHROPIC_API_KEY` to be set.
 
 ```bash
-python vibe.py --offline "add rate limiting middleware"
+export ANTHROPIC_API_KEY=sk-ant-...
+python vibe.py --api "add oauth2 login"
 ```
+
+If `--api` is passed without a key set, the script will tell you and exit.
 
 ### Slow mode
 
@@ -72,12 +79,12 @@ python vibe.py --offline "add rate limiting middleware"
 
 ```bash
 python vibe.py --slow "extract payment service into microservice"
-python vibe.py --slow --offline "add redis caching layer"
+python vibe.py --slow --api "add redis caching layer"
 ```
 
 ### Random topic (no argument)
 
-Picks a random topic each session and rotates through them.
+Picks a random topic each session from a built-in list and rotates through them.
 
 ```bash
 python vibe.py
@@ -87,18 +94,6 @@ python vibe.py --slow
 ### Exit
 
 `Ctrl+C` — exits cleanly and prints a session count.
-
----
-
-## API key setup
-
-Required unless using `--offline`:
-
-```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-```
-
-If not set, the script will tell you exactly what to do and exit.
 
 ---
 
@@ -123,7 +118,9 @@ If not set, the script will tell you exactly what to do and exit.
 
 One Haiku API call per session loop. The response budget is set to **1,200 tokens** to handle complex topics without truncation.
 
-At current Anthropic Haiku pricing (~$0.80/MTok input, ~$4.00/MTok output):
+**Default (offline): $0.** No API calls are made.
+
+When running with `--api`, one Haiku call is made per session loop. At current Anthropic Haiku pricing (~$0.80/MTok input, ~$4.00/MTok output):
 
 | | Tokens | Cost |
 |---|---|---|
@@ -131,4 +128,4 @@ At current Anthropic Haiku pricing (~$0.80/MTok input, ~$4.00/MTok output):
 | Output (seed JSON) | ~900 | ~$0.0036 |
 | **Per session** | | **~$0.004** |
 
-A full hour of looping (assuming ~2 min/session) costs around **$0.12**. Use `--offline` for zero API cost.
+A full hour of `--api` looping (assuming ~2 min/session) costs around **$0.12**.

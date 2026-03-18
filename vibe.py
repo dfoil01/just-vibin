@@ -540,35 +540,50 @@ def run_session(topic: str, offline: bool = False):
     console.print()
 
 
+def _remix_topic(original: str) -> str:
+    """Recombine words from the original topic with vocab to produce a fresh variant."""
+    stop_words = {"add","the","a","an","to","for","with","and","or","of","in","on",
+                  "implement","refactor","migrate","fix","update","create","use","using"}
+    user_words = [w.lower().strip(".,") for w in original.split() if w.lower() not in stop_words and len(w) > 2]
+    if not user_words:
+        user_words = [random.choice(vocab.DOMAINS)]
+
+    action = random.choice(vocab.ACTIONS)
+    # Keep 1-3 words from the original topic
+    kept = random.sample(user_words, k=min(random.randint(1, 3), len(user_words)))
+    # Optionally splice in a vocab domain or module suffix for variety
+    if random.random() < 0.5:
+        kept.append(random.choice(vocab.MODULE_SUFFIXES))
+    return f"{action} {' '.join(kept)}"
+
+
 def main():
     global SPEED_MULT
     args = sys.argv[1:]
-    offline = "--offline" in args
+    use_api = "--api" in args
     slow = "--slow" in args
-    args = [a for a in args if a not in ("--offline", "--slow")]
+    args = [a for a in args if a not in ("--api", "--slow", "--offline")]
     if slow:
         SPEED_MULT = 3.0
 
     topic = " ".join(args).strip() if args else random.choice(DEFAULT_TOPICS)
-    fixed_topic = bool(args)
+    user_supplied_topic = bool(args)
+    offline = not use_api
 
-    # Check for API key unless running offline
-    if not offline and not os.environ.get("ANTHROPIC_API_KEY"):
+    # Check for API key only when --api is explicitly requested
+    if use_api and not os.environ.get("ANTHROPIC_API_KEY"):
         console.print()
         console.print("[bold red]Error:[/bold red] ANTHROPIC_API_KEY is not set.")
         console.print()
         console.print("Set it with:  [bold]export ANTHROPIC_API_KEY=sk-ant-...[/bold]")
-        console.print("Or run without an API key:  [bold]python vibe.py --offline \"your topic\"[/bold]")
+        console.print("Or drop --api to run fully offline (default).")
         console.print()
         sys.exit(1)
 
     console.print()
     console.print("[bold cyan]vibe-coder[/bold cyan]  [dim]Claude Code simulator[/dim]")
     console.print(f"[dim]Topic: {topic}[/dim]")
-    if offline:
-        console.print("[dim]Mode: offline (no API calls)[/dim]")
-    if slow:
-        console.print("[dim]Mode: slow (10x timing)[/dim]")
+    console.print(f"[dim]Mode: {'api (claude-haiku)' if use_api else 'offline'}{'  · slow (3x)' if slow else ''}[/dim]")
     console.print("[dim]Press Ctrl+C to exit[/dim]")
     console.print()
 
@@ -577,9 +592,12 @@ def main():
         while True:
             session_count += 1
             run_session(topic, offline=offline)
-            if not fixed_topic:
+            # After first session: remix the topic from user words (or rotate defaults)
+            if user_supplied_topic:
+                topic = _remix_topic(topic if session_count == 1 else topic)
+            else:
                 topic = random.choice(DEFAULT_TOPICS)
-            console.print(f"[dim]Session {session_count} complete. Starting next session in 5s...[/dim]")
+            console.print(f"[dim]Session {session_count} complete. Next: \"{topic}\" — starting in 5s...[/dim]")
             _sleep(5)
     except KeyboardInterrupt:
         console.print()
