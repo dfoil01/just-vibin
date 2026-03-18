@@ -8,6 +8,7 @@ import json
 import os
 
 import anthropic
+import vocab
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -72,46 +73,71 @@ Make the paths realistic for the topic (e.g. src/auth/, src/payments/, tests/). 
 
 def _local_seed(topic: str) -> dict:
     """Generate a plausible seed locally without an API call."""
-    words = [w.lower() for w in topic.split()]
-    # Pick a domain slug from the topic words
-    domain_words = [w for w in words if w not in ("add","the","a","an","to","for","with","and","or","of","in","on")]
-    slug = domain_words[0] if domain_words else "core"
-    slug2 = domain_words[1] if len(domain_words) > 1 else "utils"
+    stop_words = {"add","the","a","an","to","for","with","and","or","of","in","on",
+                  "implement","refactor","migrate","fix","update","create","use","using"}
+    words = [w.lower().strip(".,") for w in topic.split()]
+    domain_words = [w for w in words if w not in stop_words and len(w) > 2]
 
-    src = f"src/{slug}"
-    tests = f"tests/test_{slug}.py"
+    # Pick domain — prefer known domains, fall back to topic words
+    domain = next((w for w in domain_words if w in vocab.DOMAINS), None)
+    if domain is None:
+        domain = domain_words[0] if domain_words else random.choice(vocab.DOMAINS)
+    module = random.choice(vocab.MODULE_SUFFIXES)
+
+    # File structure
+    src_tmpl, test_dir, file_names = random.choice(vocab.FILE_STRUCTURES)
+    src = src_tmpl.format(domain=domain)
+    main_file = file_names[0].format(module=module, domain=domain)
+    support_files = [f.format(module=module, domain=domain) for f in file_names[1:]]
+    tests = f"{test_dir}/test_{domain}.py"
+
     files = [
-        {"path": f"{src}/handler.py",   "language": "python", "lines": random.randint(140, 320), "purpose": f"main {slug} logic"},
-        {"path": f"{src}/models.py",    "language": "python", "lines": random.randint(60, 120),  "purpose": "data models"},
-        {"path": f"{src}/{slug2}.py",   "language": "python", "lines": random.randint(50, 100),  "purpose": "helper utilities"},
-        {"path": tests,                 "language": "python", "lines": random.randint(80, 180),  "purpose": "test suite"},
+        {"path": f"{src}/{main_file}", "language": "python",
+         "lines": random.randint(140, 320), "purpose": f"main {domain} {module}"},
     ]
-    passed = random.randint(8, 22)
+    for sf in support_files:
+        files.append({"path": f"{src}/{sf}", "language": "python",
+                      "lines": random.randint(40, 120), "purpose": sf.replace(".py","").replace("_"," ")})
+    files.append({"path": tests, "language": "python",
+                  "lines": random.randint(80, 180), "purpose": "test suite"})
+
+    functions = vocab.random_functions(domain, n=4)
+    diff_hints = random.sample(vocab.DIFF_HINTS, k=2)
+    action = random.choice(vocab.ACTIONS)
+    passed = random.randint(8, 28)
     skipped = random.randint(0, 3)
+
     plan_steps = [
-        {"summary": f"Read existing {slug} handler", "tool": "Read",
-         "file": f"{src}/handler.py", "lines": files[0]["lines"]},
-        {"summary": f"Search for {slug} patterns", "tool": "Glob",
-         "pattern": f"{src}/**/*.py", "results": [f["path"] for f in files[:3]]},
-        {"summary": f"Edit handler to implement {topic}", "tool": "Edit",
-         "file": f"{src}/handler.py", "diff_hint": f"add {slug2} param to main function"},
-        {"summary": "Run tests to verify changes", "tool": "Bash",
-         "cmd": f"pytest {tests} -v", "output_hint": "all pass"},
-        {"summary": "Check for linting issues", "tool": "Bash",
-         "cmd": f"ruff check {src}/", "output_hint": "clean"},
-        {"summary": f"Update {slug2} helper module", "tool": "Edit",
-         "file": f"{src}/{slug2}.py", "diff_hint": "import and call new function"},
-        {"summary": "Run full test suite", "tool": "Bash",
-         "cmd": "pytest -x --tb=short", "output_hint": "all pass"},
+        {"summary": f"{random.choice(vocab.PLAN_VERBS)} existing {domain} {module}",
+         "tool": "Read", "file": f"{src}/{main_file}", "lines": files[0]["lines"]},
+        {"summary": f"Search for {domain} patterns across codebase",
+         "tool": "Glob", "pattern": f"{src}/**/*.py",
+         "results": [f["path"] for f in files[:3]]},
+        {"summary": f"{action.capitalize()} {main_file} — {diff_hints[0]}",
+         "tool": "Edit", "file": f"{src}/{main_file}", "diff_hint": diff_hints[0]},
+        {"summary": "Run targeted tests",
+         "tool": "Bash",
+         "cmd": vocab.random_bash_cmd(src, tests, domain, module),
+         "output_hint": "all pass"},
+        {"summary": "Check types and linting",
+         "tool": "Bash",
+         "cmd": vocab.random_bash_cmd(src, tests, domain, module),
+         "output_hint": "clean"},
+        {"summary": f"Update {support_files[0]} — {diff_hints[1]}",
+         "tool": "Edit", "file": f"{src}/{support_files[0]}", "diff_hint": diff_hints[1]},
+        {"summary": "Run full test suite",
+         "tool": "Bash", "cmd": "pytest -x --tb=short", "output_hint": "all pass"},
     ]
     return {
-        "project_summary": f"Implement {topic} in the {slug} module",
+        "project_summary": vocab.random_project_summary(action, domain, topic),
         "files": files,
         "plan_steps": plan_steps,
-        "functions": [f"handle_{slug}", f"validate_{slug}", f"_check_{slug2}", "refresh_session"],
+        "functions": functions,
         "test_output_summary": f"{passed} passed, {skipped} skipped",
-        "files_changed": 2,
-        "lines_changed": random.randint(25, 65),
+        "files_changed": random.randint(2, 4),
+        "lines_changed": random.randint(25, 80),
+        "_src": src,
+        "_domain": domain,
     }
 
 
@@ -217,15 +243,12 @@ def render_read(step: dict, seed: dict):
     path = step.get("file", "src/unknown.py")
     lines = step.get("lines", random.randint(80, 300))
     console.print(f"[bold green]●[/bold green] [bold]Read[/bold] [cyan]{path}[/cyan] [dim]({lines} lines)[/dim]")
-    # Show a few fake lines as a preview
-    lang = "python"
-    funcs = seed.get("functions", ["main", "helper"])
-    preview_lines = []
-    for fn in funcs[:2]:
-        preview_lines.append(f"def {fn}(self, ctx):")
-        preview_lines.append(f"    # ... {random.randint(10, 30)} lines ...")
-    preview = "\n".join(preview_lines)
-    console.print(Syntax(preview, lang, theme="monokai", line_numbers=False,
+    funcs = seed.get("functions", ["process", "validate"])
+    domain = seed.get("_domain", path.split("/")[-2] if "/" in path else "core")
+    fn = funcs[0] if funcs else "process"
+    fn2 = funcs[1] if len(funcs) > 1 else "helper"
+    preview = vocab.random_snippet(domain, fn, fn2, random.randint(10, 40))
+    console.print(Syntax(preview, "python", theme="monokai", line_numbers=False,
                          background_color="default", indent_guides=False))
     console.print()
 
@@ -242,40 +265,82 @@ def render_glob(step: dict):
 
 def _make_diff(step: dict, seed: dict) -> tuple[str, str]:
     """Return (old_code, new_code) based on diff_hint."""
-    hint = step.get("diff_hint", "update function")
-    path = step.get("file", "src/module.py")
+    hint = step.get("diff_hint", random.choice(vocab.DIFF_HINTS))
     funcs = seed.get("functions", ["process", "validate"])
+    domain = seed.get("_domain", "core")
     fn = funcs[0] if funcs else "process"
+    fn2 = funcs[1] if len(funcs) > 1 else "validate_and_raise"
+    Domain = domain.replace("_", " ").title().replace(" ", "")
 
     hint_lower = hint.lower()
-    if "import" in hint_lower:
-        removed = "# no import"
-        added = f"import logging\nfrom typing import Optional"
-    elif "param" in hint_lower or "ctx" in hint_lower or "arg" in hint_lower:
+    if "import" in hint_lower or "dependency" in hint_lower:
+        removed = "# stdlib only"
+        added = f"import logging\nfrom typing import Optional\nfrom .models import {Domain}Schema"
+    elif "param" in hint_lower or "ctx" in hint_lower or "arg" in hint_lower or "keyword" in hint_lower:
         removed = f"def {fn}(self, data):\n    return self._run(data)"
-        added = f"def {fn}(self, data, ctx=None):\n    if ctx:\n        self._bind_context(ctx)\n    return self._run(data)"
-    elif "extract" in hint_lower or "helper" in hint_lower:
+        added = (f"def {fn}(self, data, *, ctx: Optional[Context] = None):\n"
+                 f"    if ctx:\n        self._bind_context(ctx)\n"
+                 f"    return self._run(data)")
+    elif "extract" in hint_lower or "helper" in hint_lower or "split" in hint_lower or "two step" in hint_lower:
         removed = (f"def {fn}(self, payload):\n"
                    f"    result = self._validate(payload)\n"
                    f"    if not result.ok:\n"
-                   f"        raise ValueError(result.error)\n"
+                   f"        raise {Domain}Error(result.error)\n"
                    f"    return self._process(result.data)")
-        fn2 = funcs[1] if len(funcs) > 1 else "validate_and_raise"
         added = (f"def {fn2}(self, payload):\n"
                  f"    result = self._validate(payload)\n"
                  f"    if not result.ok:\n"
-                 f"        raise ValueError(result.error)\n"
+                 f"        raise {Domain}Error(result.error)\n"
                  f"    return result.data\n\n"
                  f"def {fn}(self, payload):\n"
                  f"    data = self.{fn2}(payload)\n"
                  f"    return self._process(data)")
-    elif "call" in hint_lower or "invoke" in hint_lower:
-        fn2 = funcs[1] if len(funcs) > 1 else "helper"
-        removed = f"result = self._process(data)"
-        added = f"result = self.{fn2}(data)\nresult = self._process(result)"
+    elif "cache" in hint_lower or "decorator" in hint_lower:
+        removed = f"def {fn}(self, key: str) -> Optional[{Domain}]:"
+        added = (f"@cached(ttl=300)\n"
+                 f"def {fn}(self, key: str) -> Optional[{Domain}]:")
+    elif "logging" in hint_lower or "log" in hint_lower:
+        removed = (f"def {fn}(self, payload):\n"
+                   f"    return self._process(payload)")
+        added = (f"def {fn}(self, payload):\n"
+                 f"    logger.info(\"processing %s\", payload.id)\n"
+                 f"    result = self._process(payload)\n"
+                 f"    logger.debug(\"result: %s\", result)\n"
+                 f"    return result")
+    elif "guard" in hint_lower or "early" in hint_lower or "return" in hint_lower:
+        removed = (f"def {fn}(self, item):\n"
+                   f"    if item is not None:\n"
+                   f"        if item.is_active:\n"
+                   f"            return self._process(item)\n"
+                   f"    return None")
+        added = (f"def {fn}(self, item):\n"
+                 f"    if item is None or not item.is_active:\n"
+                 f"        return None\n"
+                 f"    return self._process(item)")
+    elif "enum" in hint_lower or "constant" in hint_lower or "magic" in hint_lower:
+        removed = (f"if status == \"pending\":\n"
+                   f"    ...\nelif status == \"complete\":\n"
+                   f"    ...")
+        added = (f"class {Domain}Status(str, Enum):\n"
+                 f"    PENDING = \"pending\"\n"
+                 f"    COMPLETE = \"complete\"\n\n"
+                 f"if status == {Domain}Status.PENDING:\n"
+                 f"    ...\nelif status == {Domain}Status.COMPLETE:\n"
+                 f"    ...")
+    elif "async" in hint_lower or "await" in hint_lower:
+        removed = (f"def {fn}(self, id: str) -> {Domain}:\n"
+                   f"    return self.db.query({Domain}).filter_by(id=id).first()")
+        added = (f"async def {fn}(self, id: str) -> {Domain}:\n"
+                 f"    return await self.db.get({Domain}, id)")
+    elif "dataclass" in hint_lower or "typed" in hint_lower or "schema" in hint_lower:
+        removed = f"def {fn}(self, data: dict) -> dict:"
+        added = (f"def {fn}(self, data: {Domain}Request) -> {Domain}Response:")
     else:
-        removed = (f"def {fn}(self):\n    pass")
-        added = (f"def {fn}(self):\n    self._setup()\n    return self._execute()")
+        removed = f"def {fn}(self):\n    pass"
+        added = (f"def {fn}(self):\n"
+                 f"    self._setup()\n"
+                 f"    result = self._execute()\n"
+                 f"    return result")
 
     return removed, added
 
@@ -307,38 +372,54 @@ def render_edit(step: dict, seed: dict):
     console.print()
 
 
-def _fake_pytest_output(summary: str, cmd: str) -> str:
-    passed = random.randint(8, 24)
+def _fake_pytest_output(summary: str, cmd: str, seed: dict) -> str:
+    passed = random.randint(8, 28)
     skipped = random.randint(0, 3)
+    failed = 1 if random.random() < 0.05 else 0  # rare flap
+    src = seed.get("_src", "src/core")
+    domain = seed.get("_domain", "core")
     lines = [
         "========================= test session starts ==========================",
-        f"platform linux -- Python 3.11.{random.randint(0,9)}, pytest-7.4.{random.randint(0,3)}",
+        f"platform darwin -- Python 3.11.{random.randint(0,9)}, pytest-7.4.{random.randint(0,3)}, pluggy-1.3.0",
+        f"rootdir: /home/user/project",
         "collecting ... ",
-        f"collected {passed + skipped} items",
+        f"collected {passed + skipped + failed} items",
         "",
     ]
-    test_files = ["tests/test_core.py", "tests/test_utils.py", "tests/test_integration.py"]
-    for tf in random.sample(test_files, k=min(2, len(test_files))):
-        dots = "." * random.randint(3, 8)
+    for tf in vocab.random_test_file_names(src):
+        dots = "." * random.randint(3, 10)
+        if failed and tf == lines[-1] if lines else False:
+            dots = dots[:-1] + "F"
         lines.append(f"{tf} {dots}")
+    result_parts = [f"{passed} passed"]
+    if skipped:
+        result_parts.append(f"{skipped} skipped")
+    if failed:
+        result_parts.append(f"{failed} failed")
+    result_str = ", ".join(result_parts)
     lines += [
         "",
-        f"{'=' * 20} {passed} passed, {skipped} skipped in {random.uniform(0.8, 3.2):.2f}s {'=' * 20}",
+        f"{'=' * 20} {result_str} in {random.uniform(0.4, 4.5):.2f}s {'=' * 20}",
     ]
     return "\n".join(lines)
 
 
-def _fake_ruff_output(cmd: str) -> str:
-    if random.random() < 0.85:
+def _fake_ruff_output(cmd: str, seed: dict) -> str:
+    src = seed.get("_src", "src/core")
+    funcs = seed.get("functions", ["process"])
+    fn = funcs[0]
+    if random.random() < 0.82:
         return "All checks passed."
-    return f"src/module.py:42:5: E501 Line too long ({random.randint(82,100)} > 79 characters)"
+    n_errors = random.randint(1, 3)
+    return "\n".join(vocab.random_lint_error(src, fn) for _ in range(n_errors))
 
 
-def _fake_git_output(cmd: str) -> str:
-    return ("On branch main\nYour branch is up to date with 'origin/main'.\n\n"
-            "Changes not staged for commit:\n"
-            f"  modified:   src/handler.py\n"
-            f"  modified:   src/utils.py")
+def _fake_git_output(cmd: str, seed: dict) -> str:
+    files = seed.get("files", [])
+    modified = [f["path"] for f in files[:2]]
+    mod_lines = "\n".join(f"  modified:   {p}" for p in modified)
+    return (f"On branch main\nYour branch is up to date with 'origin/main'.\n\n"
+            f"Changes not staged for commit:\n{mod_lines}")
 
 
 def render_bash(step: dict, seed: dict, tokens: TokenCounter):
@@ -365,17 +446,23 @@ def render_bash(step: dict, seed: dict, tokens: TokenCounter):
 
     # Fake output
     cmd_lower = cmd.lower()
-    if "pytest" in cmd_lower:
-        output = _fake_pytest_output(seed.get("test_output_summary", "10 passed"), cmd)
-    elif "ruff" in cmd_lower or "flake8" in cmd_lower or "lint" in cmd_lower:
-        output = _fake_ruff_output(cmd)
+    if "pytest" in cmd_lower or "python -m pytest" in cmd_lower:
+        output = _fake_pytest_output(seed.get("test_output_summary", "10 passed"), cmd, seed)
+    elif "ruff" in cmd_lower or "flake8" in cmd_lower or "mypy" in cmd_lower or "pylint" in cmd_lower:
+        output = _fake_ruff_output(cmd, seed)
     elif "git" in cmd_lower:
-        output = _fake_git_output(cmd)
+        output = _fake_git_output(cmd, seed)
     elif "pip" in cmd_lower or "install" in cmd_lower:
         pkg = cmd.split()[-1] if cmd.split() else "package"
         output = f"Requirement already satisfied: {pkg}"
+    elif "alembic" in cmd_lower:
+        output = f"INFO  [alembic.runtime.migration] Running upgrade abc123 -> def456, add_{seed.get('_domain','core')}_columns"
+    elif "docker" in cmd_lower:
+        output = "Container db started.\nContainer redis started."
+    elif "manage.py" in cmd_lower:
+        output = "System check identified no issues (0 silenced)."
     else:
-        output = f"Done. ({random.uniform(0.1, 1.2):.2f}s)"
+        output = f"Done. ({random.uniform(0.1, 1.8):.2f}s)"
 
     console.print(Panel(
         Syntax(output, "text", theme="monokai", background_color="default"),
@@ -402,7 +489,7 @@ def run_session(topic: str, offline: bool = False):
     console.print()
 
     # Phase 2: Planning
-    think(_uniform(1.5, 2.5), "Analyzing codebase...", tokens)
+    think(_uniform(1.5, 2.5), random.choice(vocab.THINKING_PHRASES), tokens)
     console.print()
     show_plan(seed)
 
@@ -410,13 +497,13 @@ def run_session(topic: str, offline: bool = False):
     for i, step in enumerate(seed["plan_steps"]):
         # Occasional reconsider (10%)
         if i > 0 and random.random() < 0.10:
-            think(_uniform(2.0, 4.0), "Hmm, let me reconsider...", tokens)
+            think(_uniform(2.0, 4.0), random.choice(vocab.RECONSIDER_PHRASES), tokens)
             console.print()
 
         # Step label
         console.print(f"[dim]Step {i+1}/{len(seed['plan_steps'])}[/dim]  {tokens.render()}")
 
-        think(_uniform(1.0, 3.5), "Thinking...", tokens)
+        think(_uniform(1.0, 3.5), random.choice(vocab.THINKING_PHRASES), tokens)
         console.print()
 
         tool = step.get("tool", "Read")
