@@ -14,7 +14,7 @@ Each session runs in four phases:
 
 1. **Seed** — generates a session scaffold using the local vocabulary engine. No API key required. Pass `--api` to use a real `claude-haiku` call instead for more varied, topic-specific output.
 
-2. **Plan** — types out a numbered plan character-by-character into a styled panel, then auto-approves it after a short pause.
+2. **Plan** — types out a numbered plan character-by-character into a styled panel. Each session has 4–10 steps, picked randomly. About 10% of steps expand into 2–5 numbered subtasks (e.g. `2.1`, `2.2`). Auto-approves after a short pause.
 
 3. **Execution** — steps through the plan, rendering each tool call realistically:
    - `Read` — shows file path, line count, and a contextual code preview (dataclass, service class, async handler, repository, exception hierarchy — picked randomly)
@@ -22,7 +22,7 @@ Each session runs in four phases:
    - `Edit` — shows a red/green diff in a panel, drawn from 9 distinct patterns (add parameter, extract helper, add logging, guard clause, enum constants, async conversion, cache decorator, typed schema, dependency injection)
    - `Bash` — shows the command, auto-approves it, runs a progress bar, then prints contextually appropriate output (pytest results with real file names, ruff/mypy/pylint errors, git status with actual modified files, alembic migrations, docker compose, etc.)
 
-   A spinner with a live token counter runs between each step. The spinner message rotates through 10 different phrases. 10% of the time it pauses to "reconsider" with one of 6 different hesitation phrases.
+   Subtasks execute inline under their parent step with their own spinner and tool call. A spinner with a live token counter runs between every step and subtask. The spinner message rotates through 10 different phrases. 10% of the time it pauses to "reconsider" with one of 6 different hesitation phrases.
 
 4. **Summary** — prints a green completion panel with files changed, lines changed, and test results, then waits 5 seconds and loops with a fresh session.
 
@@ -111,6 +111,8 @@ python vibe.py --slow
 - **5 code snippet templates** — dataclass model, service class, async handler, exception hierarchy, repository pattern
 - **Lint error pool** — 7 real error codes (E501, F401, B006, C901, etc.) with realistic line numbers
 - **10 thinking phrases + 6 reconsider phrases** — rotated randomly during spinner phases
+- **Extra step pool** — 10 optional steps sampled to pad sessions to their random target length
+- **Subtask pool** — 7 subtask options drawn from when a step expands (10% chance, 2–5 subtasks)
 
 ---
 
