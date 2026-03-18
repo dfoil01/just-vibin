@@ -4,6 +4,8 @@ A terminal simulator that convincingly fakes a Claude Code AI coding session. De
 
 Looks completely real: spinning "Thinking..." indicators, file reads with code previews, syntax-highlighted diffs, bash command approvals, a planning phase, live token counters, and a tidy summary at the end. Loops forever until you close it.
 
+**Runs fully offline by default** — no API key required. Pass `--api` to seed each session with a real Claude Haiku call for more varied output.
+
 ![Python](https://img.shields.io/badge/python-3.8+-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
