@@ -4,8 +4,6 @@ A terminal simulator that convincingly fakes a Claude Code AI coding session. De
 
 Looks completely real: spinning "Thinking..." indicators, file reads with code previews, syntax-highlighted diffs, bash command approvals, a planning phase, live token counters, and a tidy summary at the end. Loops forever until you close it.
 
-**Runs fully offline by default** — no API key required. Pass `--api` to seed each session with a real Claude Haiku call for more varied output.
-
 ![Python](https://img.shields.io/badge/python-3.8+-blue) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -14,7 +12,7 @@ Looks completely real: spinning "Thinking..." indicators, file reads with code p
 
 Each session runs in four phases:
 
-1. **Seed** — makes a single API call to `claude-haiku` to generate a realistic JSON scaffold: file paths, a plan, function names, and test output tailored to your topic. Pass `--offline` to skip this entirely and use the local vocabulary engine instead.
+1. **Seed** — generates a session scaffold using the local vocabulary engine. No API key required. Pass `--api` to use a real `claude-haiku` call instead for more varied, topic-specific output.
 
 2. **Plan** — types out a numbered plan character-by-character into a styled panel, then auto-approves it after a short pause.
 
