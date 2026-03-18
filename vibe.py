@@ -107,7 +107,7 @@ def _local_seed(topic: str) -> dict:
     passed = random.randint(8, 28)
     skipped = random.randint(0, 3)
 
-    plan_steps = [
+    core_steps = [
         {"summary": f"{random.choice(vocab.PLAN_VERBS)} existing {domain} {module}",
          "tool": "Read", "file": f"{src}/{main_file}", "lines": files[0]["lines"]},
         {"summary": f"Search for {domain} patterns across codebase",
@@ -128,6 +128,25 @@ def _local_seed(topic: str) -> dict:
         {"summary": "Run full test suite",
          "tool": "Bash", "cmd": "pytest -x --tb=short", "output_hint": "all pass"},
     ]
+
+    # Vary total steps: pad core with extras up to a random target (4–10)
+    target = random.randint(4, 10)
+    if target > len(core_steps):
+        extras = vocab.extra_steps(src, tests, domain, module, files)
+        random.shuffle(extras)
+        core_steps += extras[:target - len(core_steps)]
+    else:
+        core_steps = core_steps[:target]
+
+    # Attach subtasks to ~10% of steps (2–5 subtasks each)
+    sub_pool = vocab.subtask_steps(src, tests, domain, module)
+    for step in core_steps:
+        if random.random() < 0.10:
+            n = random.randint(2, 5)
+            random.shuffle(sub_pool)
+            step["subtasks"] = [dict(s) for s in sub_pool[:n]]
+
+    plan_steps = core_steps
     return {
         "project_summary": vocab.random_project_summary(action, domain, topic),
         "files": files,
@@ -212,6 +231,8 @@ def show_plan(seed: dict):
     plan_text = f"## Plan: {seed['project_summary']}\n\n"
     for i, step in enumerate(seed["plan_steps"], 1):
         plan_text += f"{i}. {step['summary']}\n"
+        for j, sub in enumerate(step.get("subtasks", []), 1):
+            plan_text += f"   {i}.{j}. {sub['summary']}\n"
 
     # Print panel header
     console.print(Panel("", title="[bold]Plan[/bold]", border_style="cyan", expand=False), end="")
@@ -493,19 +514,9 @@ def run_session(topic: str, offline: bool = False):
     console.print()
     show_plan(seed)
 
-    # Phase 3: Execution
-    for i, step in enumerate(seed["plan_steps"]):
-        # Occasional reconsider (10%)
-        if i > 0 and random.random() < 0.10:
-            think(_uniform(2.0, 4.0), random.choice(vocab.RECONSIDER_PHRASES), tokens)
-            console.print()
-
-        # Step label
-        console.print(f"[dim]Step {i+1}/{len(seed['plan_steps'])}[/dim]  {tokens.render()}")
-
+    def execute_step(step: dict, label: str):
         think(_uniform(1.0, 3.5), random.choice(vocab.THINKING_PHRASES), tokens)
         console.print()
-
         tool = step.get("tool", "Read")
         if tool == "Read":
             render_read(step, seed)
@@ -516,12 +527,25 @@ def run_session(topic: str, offline: bool = False):
         elif tool == "Bash":
             render_bash(step, seed, tokens)
         else:
-            # Fallback generic
             console.print(f"[bold green]●[/bold green] [bold]{tool}[/bold]  [dim]{step.get('summary', '')}[/dim]")
             console.print()
-
-        # Token tick after each step
         tokens.tick()
+
+    # Phase 3: Execution
+    total = len(seed["plan_steps"])
+    for i, step in enumerate(seed["plan_steps"]):
+        # Occasional reconsider (10%)
+        if i > 0 and random.random() < 0.10:
+            think(_uniform(2.0, 4.0), random.choice(vocab.RECONSIDER_PHRASES), tokens)
+            console.print()
+
+        console.print(f"[dim]Step {i+1}/{total}[/dim]  {tokens.render()}")
+        execute_step(step, f"{i+1}")
+
+        # Subtasks
+        for j, sub in enumerate(step.get("subtasks", []), 1):
+            console.print(f"[dim]  Step {i+1}.{j}[/dim]  {tokens.render()}")
+            execute_step(sub, f"{i+1}.{j}")
 
     # Phase 4: Summary
     console.print()

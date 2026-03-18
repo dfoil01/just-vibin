@@ -274,6 +274,61 @@ SUMMARY_SUFFIXES = [
 def random_summary_suffix() -> str:
     return random.choice(SUMMARY_SUFFIXES)
 
+# ── Extra step pool (used to pad plan to variable length) ────────────────────
+
+def extra_steps(src: str, tests: str, domain: str, module: str, files: list) -> list:
+    """Return a pool of optional plan steps to sample from."""
+    support_paths = [f["path"] for f in files[1:] if "test" not in f["path"]]
+    support = support_paths[0] if support_paths else f"{src}/utils.py"
+    hints = random.sample(DIFF_HINTS, k=min(4, len(DIFF_HINTS)))
+    return [
+        {"summary": f"Re-read {module} to confirm structure",
+         "tool": "Read", "file": f"{src}/{module}.py", "lines": random.randint(60, 200)},
+        {"summary": f"Glob for related {domain} modules",
+         "tool": "Glob", "pattern": f"**/{domain}*.py",
+         "results": [f"{src}/{module}.py", support]},
+        {"summary": f"Update {support.split('/')[-1]} — {hints[0]}",
+         "tool": "Edit", "file": support, "diff_hint": hints[0]},
+        {"summary": f"Verify {domain} imports resolve correctly",
+         "tool": "Bash", "cmd": f"python -c \"import {domain}; print('OK')\"", "output_hint": "clean"},
+        {"summary": f"Search for deprecated usages",
+         "tool": "Glob", "pattern": f"**/*.py",
+         "results": [f"{src}/{module}.py", f"{src}/utils.py", tests]},
+        {"summary": f"Patch {support.split('/')[-1]} — {hints[1]}",
+         "tool": "Edit", "file": support, "diff_hint": hints[1]},
+        {"summary": "Run linter with auto-fix",
+         "tool": "Bash", "cmd": f"ruff check {src}/ --fix", "output_hint": "clean"},
+        {"summary": f"Check {domain} test coverage",
+         "tool": "Bash", "cmd": f"pytest {tests} --cov={src} --cov-report=term-missing",
+         "output_hint": "all pass"},
+        {"summary": f"Scan for type errors",
+         "tool": "Bash", "cmd": f"mypy {src}/ --ignore-missing-imports", "output_hint": "clean"},
+        {"summary": f"Refactor {module} — {hints[2]}",
+         "tool": "Edit", "file": f"{src}/{module}.py", "diff_hint": hints[2]},
+    ]
+
+
+def subtask_steps(src: str, tests: str, domain: str, module: str) -> list:
+    """Return a pool of plausible subtask steps."""
+    hints = random.sample(DIFF_HINTS, k=min(3, len(DIFF_HINTS)))
+    return [
+        {"summary": f"Check existing {domain} interface", "tool": "Read",
+         "file": f"{src}/{module}.py", "lines": random.randint(40, 120)},
+        {"summary": f"Search for call sites", "tool": "Glob",
+         "pattern": f"**/{domain}*.py", "results": [f"{src}/{module}.py"]},
+        {"summary": f"Apply {hints[0]}", "tool": "Edit",
+         "file": f"{src}/{module}.py", "diff_hint": hints[0]},
+        {"summary": f"Spot-check related tests", "tool": "Bash",
+         "cmd": f"pytest {tests} -x -q", "output_hint": "all pass"},
+        {"summary": f"Verify no regressions", "tool": "Bash",
+         "cmd": f"ruff check {src}/", "output_hint": "clean"},
+        {"summary": f"Update helper — {hints[1]}", "tool": "Edit",
+         "file": f"{src}/utils.py", "diff_hint": hints[1]},
+        {"summary": f"Re-read after changes", "tool": "Read",
+         "file": f"{src}/{module}.py", "lines": random.randint(40, 120)},
+    ]
+
+
 # ── Project summaries ─────────────────────────────────────────────────────────
 
 SUMMARY_TEMPLATES = [
