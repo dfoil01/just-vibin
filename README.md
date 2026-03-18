@@ -68,7 +68,7 @@ python vibe.py --offline "add rate limiting middleware"
 
 ### Slow mode
 
-10x all timing delays — good for leaving on a second monitor to really commit to the bit.
+3x all timing delays — good for leaving on a second monitor to really commit to the bit.
 
 ```bash
 python vibe.py --slow "extract payment service into microservice"

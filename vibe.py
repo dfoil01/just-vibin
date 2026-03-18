@@ -456,7 +456,7 @@ def main():
     slow = "--slow" in args
     args = [a for a in args if a not in ("--offline", "--slow")]
     if slow:
-        SPEED_MULT = 10.0
+        SPEED_MULT = 3.0
 
     topic = " ".join(args).strip() if args else random.choice(DEFAULT_TOPICS)
     fixed_topic = bool(args)
