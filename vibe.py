@@ -125,7 +125,7 @@ def get_seed(topic: str, offline: bool = False) -> dict:
     with console.status("[dim]Initializing session...[/dim]", spinner="dots"):
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=800,
+            max_tokens=1200,
             messages=[{"role": "user", "content": SEED_PROMPT.format(topic=topic)}],
         )
     text = msg.content[0].text.strip()
@@ -133,7 +133,11 @@ def get_seed(topic: str, offline: bool = False) -> dict:
     if text.startswith("```"):
         lines = text.split("\n")
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        console.print("[dim]Warning: API response malformed, falling back to local seed.[/dim]")
+        return _local_seed(topic)
 
 
 # ── Token counter state ────────────────────────────────────────────────────────
