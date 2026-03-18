@@ -12,17 +12,17 @@ Looks completely real: spinning "Thinking..." indicators, file reads with code p
 
 Each session runs in four phases:
 
-1. **Seed** — makes a single cheap API call to `claude-haiku` (~$0.0004) to generate a realistic JSON scaffold: file paths, a plan, function names, and test output tailored to your topic. Pass `--offline` to skip this entirely and use a local template generator instead.
+1. **Seed** — makes a single API call to `claude-haiku` to generate a realistic JSON scaffold: file paths, a plan, function names, and test output tailored to your topic. Pass `--offline` to skip this entirely and use the local vocabulary engine instead.
 
 2. **Plan** — types out a numbered plan character-by-character into a styled panel, then auto-approves it after a short pause.
 
 3. **Execution** — steps through the plan, rendering each tool call realistically:
-   - `Read` — shows file path, line count, and a code preview
+   - `Read` — shows file path, line count, and a contextual code preview (dataclass, service class, async handler, repository, exception hierarchy — picked randomly)
    - `Glob` — lists matched files
-   - `Edit` — shows a red/green diff in a panel
-   - `Bash` — shows the command, auto-approves it, runs a progress bar, then prints fake-but-plausible output (pytest results, ruff linting, git status, etc.)
+   - `Edit` — shows a red/green diff in a panel, drawn from 9 distinct patterns (add parameter, extract helper, add logging, guard clause, enum constants, async conversion, cache decorator, typed schema, dependency injection)
+   - `Bash` — shows the command, auto-approves it, runs a progress bar, then prints contextually appropriate output (pytest results with real file names, ruff/mypy/pylint errors, git status with actual modified files, alembic migrations, docker compose, etc.)
 
-   A spinner with a live token counter runs between each step. 10% of the time it pauses to "reconsider."
+   A spinner with a live token counter runs between each step. The spinner message rotates through 10 different phrases. 10% of the time it pauses to "reconsider" with one of 6 different hesitation phrases.
 
 4. **Summary** — prints a green completion panel with files changed, lines changed, and test results, then waits 5 seconds and loops with a fresh session.
 
@@ -102,6 +102,33 @@ If not set, the script will tell you exactly what to do and exit.
 
 ---
 
+## Vocabulary engine
+
+`vocab.py` is a dictionary that drives session variety without any API calls. It's used in both offline mode and as a fallback if the API response is malformed. It contains:
+
+- **24 action verbs** — refactor, instrument, decompose, harden, etc.
+- **25 domain names** — auth, billing, cache, queue, telemetry, feature_flag, etc.
+- **16 module suffixes** — handler, repository, dispatcher, adapter, registry, etc.
+- **5 file structure templates** — `src/`, `app/`, `lib/`, `services/` layouts
+- **Function name generator** — combines prefix + domain + suffix pools for unique names each session
+- **20 diff hints** → 9 diff patterns — add parameter, extract helper, add logging, guard clause, enum constants, async conversion, cache decorator, typed schema, dependency injection
+- **Bash command templates** — across test, lint, git, and misc categories
+- **5 code snippet templates** — dataclass model, service class, async handler, exception hierarchy, repository pattern
+- **Lint error pool** — 7 real error codes (E501, F401, B006, C901, etc.) with realistic line numbers
+- **10 thinking phrases + 6 reconsider phrases** — rotated randomly during spinner phases
+
+---
+
 ## Cost
 
-One Haiku API call per session loop. Approximately **$0.0004 per session** at current Anthropic pricing. A full day of looping is still less than a cent.
+One Haiku API call per session loop. The response budget is set to **1,200 tokens** to handle complex topics without truncation.
+
+At current Anthropic Haiku pricing (~$0.80/MTok input, ~$4.00/MTok output):
+
+| | Tokens | Cost |
+|---|---|---|
+| Input (prompt) | ~250 | ~$0.0002 |
+| Output (seed JSON) | ~900 | ~$0.0036 |
+| **Per session** | | **~$0.004** |
+
+A full hour of looping (assuming ~2 min/session) costs around **$0.12**. Use `--offline` for zero API cost.
